@@ -1,0 +1,90 @@
+{
+  "variables": {
+    "aws_access_key": "{{env `aws_access_key`}}",
+    "aws_secret_key": "{{env `aws_secret_key`}}",
+    "aws_ami_name": "node",
+    "aws_ami_name_prefix": "",
+    "aws_instance_type": "m3.medium",
+    "aws_region": "{{env `aws_region`}}",
+    "aws_ssh_username": "admin",
+    "nvm_version": "v0.33.6",
+    "node_version": "8.7.0",
+    "system_locale": "en_US"
+  },
+  "builders": [
+    {
+      "type": "amazon-ebs",
+      "access_key": "{{user `aws_access_key`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+      "region": "{{user `aws_region`}}",
+      "instance_type": "{{user `aws_instance_type`}}",
+      "ssh_username": "{{user `aws_ssh_username`}}",
+      "ami_name": "{{user `aws_ami_name_prefix`}}{{user `aws_ami_name`}}-{{user `node_version`}}-({{isotime \"20060102150405\"}})",
+      "source_ami_filter": {
+        "filters": {
+          "architecture": "x86_64",
+          "name": "debian-jessie-*",
+          "root-device-type": "ebs",
+          "virtualization-type": "hvm"
+        },
+        "owners": [
+          "379101102735"
+        ],
+        "most_recent": true
+      }
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "shell",
+      "inline_shebang": "/bin/bash -e",
+      "environment_vars": [
+        "DEBIAN_FRONTEND=noninteractive",
+        "INSTANCE_USER={{user `aws_ssh_username`}}",
+        "NVM_VERSION={{user `nvm_version`}}",
+        "NODE_VERSION={{user `node_version`}}"
+      ],
+      "inline": [
+        "unset HISTFILE",
+        "history -cw",
+        "echo === Waiting for Cloud-Init ===",
+        "timeout 180 /bin/bash -c 'until stat /var/lib/cloud/instance/boot-finished &>/dev/null; do echo waiting...; sleep 6; done'",
+        "echo === System Packages ===",
+        "echo 'deb http://ftp.debian.org/debian jessie-backports main contrib non-free' | sudo tee /etc/apt/sources.list.d/backports.list > /dev/null",
+        "sudo apt-get -qq update",
+        "sudo apt-get -y -qq install --no-install-recommends apt-transport-https apt-show-versions bash-completion logrotate ntp ntpdate htop vim wget curl",
+        "sudo apt-get -y -qq install --no-install-recommends -t jessie-backports",
+        "sudo apt-get -y -qq --purge autoremove",
+        "sudo apt-get autoclean",
+        "sudo apt-get clean",
+        "echo === System Settings ===",
+        "echo 'dash dash/sh boolean false' | sudo debconf-set-selections",
+        "sudo dpkg-reconfigure -f noninteractive dash",
+        "sudo update-locale LC_CTYPE={{user `system_locale`}}.UTF-8",
+        "echo 'export TZ=:/etc/localtime' | sudo tee /etc/profile.d/tz.sh > /dev/null",
+        "sudo update-alternatives --set editor /usr/bin/vim.basic",
+        "sudo sed -i -r -e '/127.0.1.1/s/^#*/#/' /etc/cloud/templates/hosts.debian.tmpl",
+        "echo === Node ===",
+        "curl https://raw.githubusercontent.com/creationix/nvm/$NVM_VERSION/install.sh | bash",
+        ". $HOME/.nvm/nvm.sh",
+        "echo '[[ -s $HOME/.nvm/nvm.sh ]] && . $HOME/.nvm/nvm.sh' >> $HOME/.bashrc",
+        "nvm install $NODE_VERSION",
+        "nvm alias default $NODE_VERSION",
+        "npm update -g npm",
+        "echo === System Cleanup ===",
+        "sudo rm -f /root/.bash_history",
+        "sudo rm -f /home/{{user `aws_ssh_username`}}/.bash_history",
+        "sudo rm -f /var/log/wtmp",
+        "sudo rm -f /var/log/btmp",
+        "sudo rm -rf /var/log/installer",
+        "sudo rm -rf /var/lib/cloud/instances",
+        "sudo rm -rf /tmp/* /var/tmp/* /tmp/.*-unix",
+        "sudo find /var/cache -type f -delete",
+        "sudo find /var/log -type f | while read f; do echo -n '' | sudo tee $f > /dev/null; done;",
+        "sudo find /var/lib/apt/lists -not -name lock -type f -delete",
+        "sudo sync",
+        "echo === All Done ==="
+      ]
+    }
+  ]
+}
